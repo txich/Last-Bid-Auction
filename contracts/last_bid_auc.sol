@@ -9,6 +9,8 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
 
     uint fee = 5; // 5% fee on the winning bid
     uint public aucId;
+    uint public accumulatedFees;
+    uint public minIncrement = 10; // Minimum increment for bids (1% of current price, 1 = 0.1%)
 
     struct Auction {
         string name;
@@ -102,7 +104,8 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
         require(auc.isActive, "Auction is not active");
         require(block.timestamp < auc.lastbidtime + auc.addedTime, "Auction has ended");
         require(msg.sender != auc.creator, "Creator cannot bid on their own auction");
-        require(msg.value > auc.currentPrice, "Bid must be higher than current price");
+        require(msg.value > auc.currentPrice + auc.currentPrice * minIncrement / 1000 , 
+        "Bid must be higher than current price at least by the minimum increment");
 
         // Refund the last bidder if there was one
         if (auc.lastBidder != address(0)) {
@@ -132,6 +135,7 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
         emit AuctionEnded(_aucId, auc.name, auc.lastBidder, auc.currentPrice, block.timestamp);
 
         userBalance[auc.creator] += auc.currentPrice * (100 - fee) / 100; // Transfer winning amount to creator after fee
+        accumulatedFees += auc.currentPrice * fee / 100; // Accumulate fees
 
     }
 
@@ -152,6 +156,11 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
         fee = newFee;
     }
 
+    function changeMinIncrement(uint newMinIncrement) external onlyOwner {
+        require(newMinIncrement > 0, "Minimum increment must be positive");
+        minIncrement = newMinIncrement;
+    }
+
     function changeOwner(address newOwner) external onlyOwner {
         require(newOwner != address(0), "New owner cannot be zero address");
         transferOwnership(newOwner);
@@ -159,7 +168,11 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
 
 
     function withdrawFees() external onlyOwner {
-        payable(owner()).transfer(address(this).balance);
+        require(accumulatedFees > 0, "No fees to withdraw");
+        uint amount = accumulatedFees;
+        accumulatedFees = 0;
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
     }
 
 
