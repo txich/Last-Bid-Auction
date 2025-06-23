@@ -24,6 +24,8 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
 
     mapping(uint => Auction) public auctions;
 
+    mapping(address => uint) public userBalance;
+
     event AuctionCreated(
         uint indexed aucId,
         string name,
@@ -98,17 +100,13 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
         // Logic to place a bid
         Auction storage auc = auctions[_aucId];
         require(auc.isActive, "Auction is not active");
-        if (auc.lastbidtime + auc.addedTime <= block.timestamp) {
-            endAuction(_aucId);
-            return;
-        }
+        require(block.timestamp < auc.lastbidtime + auc.addedTime, "Auction has ended");
         require(msg.sender != auc.creator, "Creator cannot bid on their own auction");
         require(msg.value > auc.currentPrice, "Bid must be higher than current price");
 
         // Refund the last bidder if there was one
         if (auc.lastBidder != address(0)) {
-            (bool success, ) = auc.lastBidder.call{value: auc.currentPrice}("");
-            require(success, "Refund failed");
+            userBalance[auc.lastBidder] += auc.currentPrice; // Refund last bidder
         }
 
         auc.lastBidder = msg.sender;
@@ -133,16 +131,24 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
         auc.isActive = false;
         emit AuctionEnded(_aucId, auc.name, auc.lastBidder, auc.currentPrice, block.timestamp);
 
-        if (auc.currentPrice > 0 && auc.creator != address(0)) {
-            uint payout = auc.currentPrice - (auc.currentPrice * fee / 100);
-            
-            (bool success, ) = auc.creator.call{value: payout}("");
-            require(success, "Payout failed");
-        }
+        userBalance[auc.creator] += auc.currentPrice * (100 - fee) / 100; // Transfer winning amount to creator after fee
+
+    }
+
+    function getUserBalance() external view returns (uint) {
+        return userBalance[msg.sender];
+    }
+
+    function withdrawBalance(uint _amount) external nonReentrant {
+        require(_amount > 0, "No balance to withdraw");
+        require(_amount <= userBalance[msg.sender], "Insufficient balance");
+        userBalance[msg.sender] -= _amount;
+        (bool success, ) = msg.sender.call{value: _amount}("");
+        require(success, "Transfer failed");
     }
 
     function changeFee(uint newFee) external onlyOwner {
-        require(newFee <= 100, "Fee cannot exceed 100%");
+        require(newFee <= 50, "Fee cannot exceed 50%");
         fee = newFee;
     }
 
