@@ -83,8 +83,8 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
 
     function createAuction(string memory _name, uint _startprice, uint _addedtime) external {
         // Logic to create an auction
-        require(_startprice > 0, "Start price must be positive");
-        require(_addedtime > 0, "Auction duration must be positive");
+        require(_startprice > 0, "Start price must be greater than zero");
+        require(_addedtime > 60, "Auction duration must be greater than 60 seconds");
 
         aucId++;
         auctions[aucId] = Auction({
@@ -105,7 +105,7 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
         // Logic to place a bid
         Auction storage auc = auctions[_aucId];
         require(auc.isActive, "Auction is not active");
-        require(block.timestamp < auc.lastbidtime + auc.addedTime, "Auction has ended");
+        require(block.timestamp < auc.lastbidtime + auc.addedTime, "Time is up for this auction");
         require(msg.sender != auc.creator, "Creator cannot bid on their own auction");
         require(msg.value > auc.currentPrice + auc.currentPrice * minIncrement / 1000 , 
         "Bid must be higher than current price at least by the minimum increment");
