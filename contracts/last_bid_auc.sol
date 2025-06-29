@@ -2,10 +2,13 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 
-contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
+contract LastBidAuction is ReentrancyGuard, Ownable {
+
+    constructor(address initialOwner) Ownable(initialOwner) {
+    }
 
     uint fee = 5; // 5% fee on the winning bid
     uint public aucId;
@@ -160,12 +163,6 @@ contract LastBidAuction is ReentrancyGuard, Ownable(msg.sender) {
         require(newMinIncrement > 0, "Minimum increment must be positive");
         minIncrement = newMinIncrement;
     }
-
-    function changeOwner(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "New owner cannot be zero address");
-        transferOwnership(newOwner);
-    }
-
 
     function withdrawFees() external onlyOwner {
         require(accumulatedFees > 0, "No fees to withdraw");
