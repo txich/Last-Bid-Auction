@@ -119,6 +119,10 @@ describe("LastBidAuction", function () {
 
             await auction.connect(seller).endAuction(1);
 
+            const auc = await auction.auctions(1);
+
+            expect(auc.isActive).to.equal(false);
+
             await expect(auction.connect(bidder1).placeBid(1, { value: 150 }))
                 .to.be.revertedWith("Auction is not active");
         });
@@ -172,6 +176,83 @@ describe("LastBidAuction", function () {
             expect(auc.currentPrice).to.equal(ethers.parseEther("100"));
             expect(auc.lastBidder).to.equal(bidder2.address);
         });
+    });
+
+    describe("Auction Ending", function () {
+
+        it("Should allow to end an auction", async function () {
+
+            const { auction, seller, bidder1, randwallet } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 10000, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 15000 });
+
+            await network.provider.send("evm_increaseTime", [3800]);
+            await network.provider.send("evm_mine");
+
+            const tx = await auction.connect(randwallet).endAuction(1);
+
+            const auc = await auction.auctions(1);
+
+            await expect(tx)
+                .to.emit(auction, "AuctionEnded")
+                .withArgs(1, "Test Item", anyValue, auc.currentPrice, anyValue);
+
+            expect(auc.isActive).to.equal(false);
+
+            expect(await auction.userBalance(seller.address)).to.equal(BigInt(15000 * 95 / 100));
+            expect(await auction.accumulatedFees()).to.equal(BigInt(15000 * 5 / 100));
+        });
+
+
+        it("Should not allow ending an auction twice", async function () {
+
+            const { auction, seller, bidder1 } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 150 });
+
+            await network.provider.send("evm_increaseTime", [3800]);
+            await network.provider.send("evm_mine");
+
+            await auction.connect(seller).endAuction(1);
+
+            await expect(auction.connect(seller).endAuction(1))
+                .to.be.revertedWith("Auction already ended");
+        });
+
+
+        it("Should not allow ending an auction that has not yet ended", async function () {
+
+            const { auction, seller } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+
+            await expect(auction.connect(seller).endAuction(1))
+                .to.be.revertedWith("Auction not yet ended");
+        });
+
+        it("Should not increase seller balance after ending an auction with no bids", async function () {
+
+            const { auction, seller } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+
+            await network.provider.send("evm_increaseTime", [3800]);
+            await network.provider.send("evm_mine");
+
+            
+
+            const initialBalance = await auction.userBalance(seller.address);
+            const tx = await auction.connect(seller).endAuction(1);
+            await tx.wait();
+
+            const auc = await auction.auctions(1);
+            expect(auc.isActive).to.equal(false);
+
+            expect(await auction.userBalance(seller.address)).to.equal(initialBalance);
+        });
+
     });
 
 

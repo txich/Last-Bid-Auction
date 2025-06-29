@@ -10,7 +10,7 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
     constructor(address initialOwner) Ownable(initialOwner) {
     }
 
-    uint fee = 5; // 5% fee on the winning bid
+    uint public fee = 5; // 5% fee on the winning bid
     uint public aucId;
     uint public accumulatedFees;
     uint public minIncrement = 10; // Minimum increment for bids (1% of current price, 1 = 0.1%)
@@ -129,16 +129,21 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
         );
     }
 
-    function endAuction(uint _aucId) public {
+    function endAuction(uint _aucId) public returns (string memory) {
         Auction storage auc = auctions[_aucId];
         require(auc.isActive, "Auction already ended");
         require(block.timestamp >= auc.lastbidtime + auc.addedTime, "Auction not yet ended");
+        if (auc.lastBidder == address(0)) {
+            auc.isActive = false;
+            return("No bids were placed in this auction");
+        }
 
         auc.isActive = false;
         emit AuctionEnded(_aucId, auc.name, auc.lastBidder, auc.currentPrice, block.timestamp);
 
         userBalance[auc.creator] += auc.currentPrice * (100 - fee) / 100; // Transfer winning amount to creator after fee
         accumulatedFees += auc.currentPrice * fee / 100; // Accumulate fees
+        return("Auction ended successfully, funds transferred to creator");
 
     }
 
