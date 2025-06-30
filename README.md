@@ -79,7 +79,7 @@ To deploy the contract:
    Open a new terminal and deploy the Hardhat Ignition module in the localhost network:
 
    ```bash
-   npx hardhat ignition deploy ./ignition/modules/Lock.ts --network localhost
+   npx hardhat ignition deploy ./ignition/modules/LastBidAuction.ts --network localhost
    ```
 
 ## Contributing
