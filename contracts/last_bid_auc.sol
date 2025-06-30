@@ -56,6 +56,23 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
         uint timestamp
     );
 
+    event BalanceWithdrawn(
+        address indexed user,
+        uint amount
+    );
+
+    event FeeChanged(
+        address indexed owner,
+        uint oldFee,
+        uint newFee
+    );
+
+    event MinIncrementChanged(
+        address indexed owner,
+        uint oldMinIncrement,
+        uint newMinIncrement
+    );
+
     function getAuction(uint _aucId) external view returns (
         string memory name,
         address creator,
@@ -107,7 +124,7 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
         require(auc.isActive, "Auction is not active");
         require(block.timestamp < auc.lastbidtime + auc.addedTime, "Time is up for this auction");
         require(msg.sender != auc.creator, "Creator cannot bid on their own auction");
-        require(msg.value > auc.currentPrice + auc.currentPrice * minIncrement / 1000 , 
+        require(msg.value >= auc.currentPrice + auc.currentPrice * minIncrement / 1000 , 
         "Bid must be higher than current price at least by the minimum increment");
 
         // Refund the last bidder if there was one
@@ -152,20 +169,23 @@ contract LastBidAuction is ReentrancyGuard, Ownable {
     }
 
     function withdrawBalance(uint _amount) external nonReentrant {
-        require(_amount > 0, "No balance to withdraw");
+        require(_amount > 0, "Amount must be greater than zero");
         require(_amount <= userBalance[msg.sender], "Insufficient balance");
         userBalance[msg.sender] -= _amount;
         (bool success, ) = msg.sender.call{value: _amount}("");
         require(success, "Transfer failed");
+        emit BalanceWithdrawn(msg.sender, _amount);
     }
 
     function changeFee(uint newFee) external onlyOwner {
         require(newFee <= 50, "Fee cannot exceed 50%");
+        emit FeeChanged(msg.sender, fee, newFee);
         fee = newFee;
     }
 
     function changeMinIncrement(uint newMinIncrement) external onlyOwner {
         require(newMinIncrement > 0, "Minimum increment must be positive");
+        emit MinIncrementChanged(msg.sender, minIncrement, newMinIncrement);
         minIncrement = newMinIncrement;
     }
 

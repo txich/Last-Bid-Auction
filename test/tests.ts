@@ -34,6 +34,7 @@ describe("LastBidAuction", function () {
     });
 
     describe("Auction Creation", function () {
+
         it("Should create an auction with correct parameters", async function () {
 
             const { auction, seller } = await loadFixture(deploy);
@@ -53,6 +54,19 @@ describe("LastBidAuction", function () {
             expect(auc.isActive).to.equal(true);
             expect(auc.lastBidder).to.equal(ZeroAddress);
             expect(await auction.aucId()).to.equal(1);
+
+            expect(await auction.getAuction(1))
+                .to.deep.equal([
+                    "Test Item",
+                    seller.address,
+                    auc.startTime,
+                    auc.addedTime,
+                    auc.lastbidtime,
+                    auc.startPrice,
+                    auc.currentPrice,
+                    auc.isActive,
+                    ZeroAddress
+                ]);
         });
 
 
@@ -154,10 +168,10 @@ describe("LastBidAuction", function () {
 
             const { auction, seller, bidder1, bidder2 } = await loadFixture(deploy);
 
-            await auction.connect(seller).createAuction("Test Item", 100, 3600);
-            await auction.connect(bidder1).placeBid(1, { value: 150 });
+            await auction.connect(seller).createAuction("Test Item", 1000, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 1500 });
 
-            await expect(auction.connect(bidder2).placeBid(1, { value: 151 }))
+            await expect(auction.connect(bidder2).placeBid(1, { value: 1510 }))
                 .to.be.revertedWith("Bid must be higher than current price at least by the minimum increment");
         });
 
@@ -255,5 +269,211 @@ describe("LastBidAuction", function () {
 
     });
 
+    describe("Balance Functions", function () {
 
+        it("Should allow users to view their balance", async function () {
+            const { auction, seller, bidder1, bidder2 } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 150 });
+            await auction.connect(bidder2).placeBid(1, { value: 200 });
+
+            expect(await auction.userBalance(seller.address)).to.equal(0);
+            expect(await auction.userBalance(bidder1.address)).to.equal(150);
+            expect(await auction.userBalance(bidder2.address)).to.equal(0);
+
+        });
+
+        it("Should allow users to withdraw all their balance", async function () {
+            const { auction, seller, bidder1, bidder2 } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 150 });
+            await auction.connect(bidder2).placeBid(1, { value: 200 });
+
+            expect(await auction.connect(bidder1).getUserBalance()).to.equal(150);
+
+            const tx = await auction.connect(bidder1).withdrawBalance(150);
+
+            await expect(tx)
+                .to.emit(auction, "BalanceWithdrawn")
+                .withArgs(bidder1.address, 150);
+
+            expect(await auction.userBalance(bidder1.address)).to.equal(0);
+            expect(await auction.connect(bidder1).getUserBalance()).to.equal(0);
+
+        });
+
+        it("Should allow users to withdraw partial balance", async function () {
+            const { auction, seller, bidder1, bidder2 } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 150 });
+            await auction.connect(bidder2).placeBid(1, { value: 200 });
+
+            expect(await auction.connect(bidder1).getUserBalance()).to.equal(150);
+
+            const tx = await auction.connect(bidder1).withdrawBalance(100);
+
+            await expect(tx)
+                .to.emit(auction, "BalanceWithdrawn")
+                .withArgs(bidder1.address, 100);
+
+            expect(await auction.userBalance(bidder1.address)).to.equal(50);
+            expect(await auction.connect(bidder1).getUserBalance()).to.equal(50);
+        });
+
+
+        it("Should not allow withdrawing 0", async function () {
+
+            const { auction, bidder1, bidder2, seller } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 150 });
+            await auction.connect(bidder2).placeBid(1, { value: 200 });
+            expect(await auction.connect(bidder1).getUserBalance()).to.equal(150);
+
+            await expect(auction.connect(bidder1).withdrawBalance(0))
+                .to.be.revertedWith("Amount must be greater than zero");
+
+        });
+
+        it("Should not allow withdrawing more than balance", async function () {
+
+            const { auction, bidder1, bidder2, seller } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 150 });
+            await auction.connect(bidder2).placeBid(1, { value: 200 });
+            expect(await auction.connect(bidder1).getUserBalance()).to.equal(150);
+
+            await expect(auction.connect(bidder1).withdrawBalance(200))
+                .to.be.revertedWith("Insufficient balance");
+        });
+
+    });
+
+    describe("Owner Functions", function () {
+        it("Should allow owner to change fee", async function () {
+
+            const { auction, aucowner, seller, randwallet, bidder1 } = await loadFixture(deploy);
+
+            const newFee = 50;
+            const tx = await auction.connect(aucowner).changeFee(newFee);
+
+            await expect(tx)
+                .to.emit(auction, "FeeChanged")
+                .withArgs(aucowner.address, 5, newFee);
+
+            expect(await auction.fee()).to.equal(newFee);
+
+
+            await auction.connect(seller).createAuction("Test Item", 10000, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 15000 });
+
+            await network.provider.send("evm_increaseTime", [3800]);
+            await network.provider.send("evm_mine");
+
+            const tx1 = await auction.connect(randwallet).endAuction(1);
+
+            const auc = await auction.auctions(1);
+
+            await expect(tx1)
+                .to.emit(auction, "AuctionEnded")
+                .withArgs(1, "Test Item", anyValue, auc.currentPrice, anyValue);
+
+            expect(auc.isActive).to.equal(false);
+
+            expect(await auction.userBalance(seller.address)).to.equal(BigInt(15000 * 50 / 100));
+            expect(await auction.accumulatedFees()).to.equal(BigInt(15000 * 50 / 100));
+
+        });
+
+        it("Should not allow non-owner to change fee", async function () {
+
+            const { auction, bidder1 } = await loadFixture(deploy);
+
+            await expect(auction.connect(bidder1).changeFee(10))
+                .to.be.revertedWithCustomError;
+        });
+
+        it("Should not allow setting fee > 50%", async function () {
+
+            const { auction, aucowner } = await loadFixture(deploy);
+
+            await expect(auction.connect(aucowner).changeFee(51))
+                .to.be.revertedWith("Fee cannot exceed 50%");
+        });
+
+        it("Should allow to change minimum increment", async function () {
+            const { auction, aucowner, seller, bidder1, bidder2 } = await loadFixture(deploy);
+
+            const newMinIncrement = 1000;
+            const tx = await auction.connect(aucowner).changeMinIncrement(newMinIncrement);
+
+            await expect(tx)
+                .to.emit(auction, "MinIncrementChanged")
+                .withArgs(aucowner.address, 10, newMinIncrement);
+
+            expect(await auction.minIncrement()).to.equal(newMinIncrement);
+
+            await auction.connect(seller).createAuction("Test Item", 100, 3600);
+            await auction.connect(bidder1).placeBid(1, { value: 200 });
+
+            await expect(auction.connect(bidder2).placeBid(1, { value: 399 }))
+                .to.be.revertedWith("Bid must be higher than current price at least by the minimum increment");
+
+        });
+
+        it("Should not allow non-owner to change minimum increment", async function () {
+
+            const { auction, bidder1 } = await loadFixture(deploy);
+
+            await expect(auction.connect(bidder1).changeMinIncrement(1000))
+                .to.be.revertedWithCustomError;
+        });
+
+        it("Should not allow setting minimum increment <= 0", async function () {
+            const { auction, aucowner } = await loadFixture(deploy);
+
+            await expect(auction.connect(aucowner).changeMinIncrement(0))
+                .to.be.revertedWith("Minimum increment must be positive");
+        });
+
+        it("Should allow owner to withdraw accumulated fees", async function () {
+            const { auction, aucowner, seller, bidder1 } = await loadFixture(deploy);
+
+            await auction.connect(seller).createAuction("Test Item", ethers.parseEther("1"), 3600);
+            await auction.connect(bidder1).placeBid(1, { value: ethers.parseEther("10") });
+
+            expect(await auction.accumulatedFees()).to.equal(0);
+            const initialOwnerBalance = await ethers.provider.getBalance(aucowner.address);
+
+            await network.provider.send("evm_increaseTime", [3800]);
+            await network.provider.send("evm_mine");
+            await auction.connect(aucowner).endAuction(1);
+
+            expect(await auction.accumulatedFees()).to.equal(ethers.parseEther("0.5"));
+            await auction.connect(aucowner).withdrawFees();
+
+            expect(await auction.accumulatedFees()).to.equal(0);
+            expect(await ethers.provider.getBalance(aucowner.address)).to.be.closeTo(initialOwnerBalance + ethers.parseEther("0.5"), ethers.parseEther("0.001"));
+        });
+
+        it("Should not allow non-owner to withdraw accumulated fees", async function () {
+            const { auction, bidder1 } = await loadFixture(deploy);
+
+            await expect(auction.connect(bidder1).withdrawFees())
+                .to.be.revertedWithCustomError;
+        });
+
+        it("Should not allow withdrawing fees if there are none", async function () {
+            const { auction, aucowner } = await loadFixture(deploy);
+
+            expect(await auction.accumulatedFees()).to.equal(0);
+            await expect(auction.connect(aucowner).withdrawFees())
+                .to.be.revertedWith("No fees to withdraw");
+        });
+    
+    });
 });
